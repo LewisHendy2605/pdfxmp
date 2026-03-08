@@ -1,0 +1,7 @@
+*.exe
+build/
+
+*.env
+
+*.log
+logs/
