@@ -1,4 +1,4 @@
-module pdfxmp
+module github.com/LewisHendy2605/pdfxmp
 
 go 1.25.5
 

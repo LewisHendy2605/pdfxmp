@@ -7,10 +7,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"pdfxmp/src/types"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/LewisHendy2605/pdfxmp/src/types"
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 )
