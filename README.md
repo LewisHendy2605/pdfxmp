@@ -1,4 +1,4 @@
-# GoXMP - Flexible XMP Metadata Library for PDFs
+# PdfXmp - Flexible XMP Metadata Library for PDFs
 
 GoXMP is a lightweight Go library to **read, extract, and manipulate XMP metadata** from PDFs. It is designed to be **flexible**, allowing users to handle **any XMP schema** and marshal it into their own types.
 
