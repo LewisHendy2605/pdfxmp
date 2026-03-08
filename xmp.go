@@ -1,4 +1,4 @@
-package main
+package pdfxmp
 
 import (
 	"bytes"
@@ -11,8 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/LewisHendy2605/pdfxmp/src/types"
-
+	types "github.com/LewisHendy2605/pdfxmp/internal/extract"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 )
 
