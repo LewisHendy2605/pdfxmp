@@ -1,10 +1,13 @@
-package xmp
+package main
 
 import (
 	"bytes"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"pdfxmp/src/types"
 	"regexp"
 	"strconv"
 	"strings"
@@ -13,11 +16,11 @@ import (
 )
 
 // Load in string templates
-var catalog, catalog_err = os.ReadFile("./templates/xmp_catalog.txt")
-var xmp_obj, obj_err = os.ReadFile("./templates/xmp_obj.txt")
-var xmp_stream, stream_err = os.ReadFile("./templates/xmp_stream.txt")
-var xmp_xml, xml_err = os.ReadFile("./templates/xmp.xml")
-var xref, xref_err = os.ReadFile("./templates/xref.txt")
+var catalog, catalog_err = os.ReadFile("../templates/xmp_catalog.txt")
+var xmp_obj, obj_err = os.ReadFile("../templates/xmp_obj.txt")
+var xmp_stream, stream_err = os.ReadFile("../templates/xmp_stream.txt")
+var xmp_xml, xml_err = os.ReadFile("../templates/xmp.xml")
+var xref, xref_err = os.ReadFile("../templates/xref.txt")
 
 type Pdf struct {
 	inFilePath               string
@@ -36,13 +39,19 @@ type Metadata struct {
 // Opens a existing pdf file and loads into memory
 // TODO: Is this the best way to do this, whats the performace loss of holding in memory ?
 func Open(filePath string) (*Pdf, error) {
+	var err error
+
 	if !strings.HasSuffix(filePath, ".pdf") {
 		return nil, fmt.Errorf("file path had unexpected file extension")
 	}
 
-	var err error
+	path, err := filepath.Abs(filePath)
+	if err != nil {
+		return nil, err
+	}
+
 	pdf := &Pdf{
-		inFilePath: filePath,
+		inFilePath: path,
 	}
 
 	file, err := os.Open(filePath)
@@ -67,7 +76,19 @@ func Open(filePath string) (*Pdf, error) {
 
 // Flushes buffer into a output file
 func (pdf *Pdf) Save(filePath string) error {
-	pdf.outFilePath = filePath
+	var err error
+
+	path, err := filepath.Abs(filePath)
+	if err != nil {
+		return err
+	}
+
+	pdf.outFilePath = path
+
+	err = os.MkdirAll(filepath.Dir(path), 0755)
+	if err != nil {
+		return err
+	}
 
 	file, err := os.Create(filePath)
 	if err != nil {
@@ -110,9 +131,17 @@ func (pdf *Pdf) prevStartXrefByteOffset() error {
 	return nil
 }
 
+func (pdf *Pdf) Validate() error {
+	return api.ValidateFile(pdf.inFilePath, nil)
+}
+
 // Embeded xmp xml metadata into a pdf
 func (pdf *Pdf) AddMetaData(metadata []Metadata) error {
 	var err error
+
+	if stream_err != nil {
+		return err
+	}
 
 	// Add marker comment
 	if _, err = pdf.buffer.Write([]byte("%BeginGpdfUpdate\n")); err != nil {
@@ -127,33 +156,33 @@ func (pdf *Pdf) AddMetaData(metadata []Metadata) error {
 		return err
 	}
 
+	pdf.buffer.Write([]byte("\n"))
+
 	// Build xml with embeded data
 	xmp_xml_custom := buildXml(metadata)
 	xml := fmt.Sprintf(string(xmp_xml), xmp_xml_custom)
+	xmp_metadata := fmt.Sprintf(string(xmp_stream), xml)
 
 	// Mark byte offset for xmp object
 	offsetXMP := pdf.buffer.Len()
 
 	// Write xmp object
-	if _, err = fmt.Fprintf(&pdf.buffer, string(xmp_obj), pdf.numObjects+1, len(xmp_xml)); err != nil {
+	if _, err = fmt.Fprintf(&pdf.buffer, string(xmp_obj), pdf.numObjects+1, len(xmp_xml), xmp_metadata); err != nil {
 		return err
 	}
 
-	// Write xmp stream with xml
-	if _, err = fmt.Fprintf(&pdf.buffer, string(xmp_stream), xml, "\r\n"); err != nil {
-		return err
-	}
+	pdf.buffer.Write([]byte("\n"))
 
 	// Mark byte offset for xref table
 	xrefOffset := pdf.buffer.Len()
 
 	// Write xref table
-	if _, err = fmt.Fprintf(&pdf.buffer, string(xref), offsetCatalog, pdf.numObjects+1, offsetXMP, pdf.numObjects+2, pdf.prevStartXrefBytesOffset, "%EndGpdfUpdate 25132", xrefOffset); err != nil {
+	if _, err = fmt.Fprintf(&pdf.buffer, string(xref), offsetCatalog, pdf.numObjects+1, offsetXMP, pdf.numObjects+2, pdf.prevStartXrefBytesOffset, "%EndGpdfUpdate", xrefOffset); err != nil {
 		return err
 	}
 
 	// Write end of file
-	if _, err = pdf.buffer.Write([]byte("%%EOF\n")); err != nil {
+	if _, err = pdf.buffer.Write([]byte("\n%%EOF\n")); err != nil {
 		return err
 	}
 
@@ -176,10 +205,65 @@ func newXmlTag(key string, value string) string {
 }
 
 // Extracts metadata from existing pdf and outputs as a file
-func (pdf *Pdf) ExtractMetadata(outputDir string) error {
-	err := api.ExtractMetadataFile(pdf.inFilePath, outputDir, nil)
+func ExtractMetadata(inputFile string, outputDir string) error {
+	path, err := filepath.Abs(outputDir)
+	if err != nil {
+		return err
+	}
+	err = api.ExtractMetadataFile(inputFile, path, nil)
 	if err != nil {
 		return fmt.Errorf("couldnt extract metadate from pdf: %w", err)
 	}
 	return nil
+}
+
+func GetMetadata(inputFile string) (*types.Metadata, error) {
+	outputDir, err := filepath.Abs("../output")
+	if err != nil {
+		return nil, err
+	}
+
+	err = os.MkdirAll(outputDir, 0755)
+	if err != nil {
+		return nil, err
+	}
+
+	err = api.ExtractMetadataFile(inputFile, outputDir, nil)
+	if err != nil {
+		return nil, fmt.Errorf("couldnt extract metadate from pdf: %w", err)
+	}
+
+	pdfName := strings.Trim(filepath.Base(inputFile), filepath.Ext(inputFile))
+
+	pattern := filepath.Join(
+		outputDir,
+		pdfName+"_Metadata_Catalog_*.txt",
+	)
+
+	files, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(files) == 0 {
+		return nil, fmt.Errorf("No Metdata Files Found")
+	}
+
+	data, err := os.ReadFile(files[0])
+	if err != nil {
+		return nil, fmt.Errorf("No Metdata Files Found")
+	}
+
+	var meta types.Metadata
+
+	err = xml.Unmarshal(data, &meta)
+	if err != nil {
+		return nil, err
+	}
+
+	return &meta, nil
+}
+
+func Validate(filePath string) error {
+	return api.ValidateFile(filePath, nil)
 }
