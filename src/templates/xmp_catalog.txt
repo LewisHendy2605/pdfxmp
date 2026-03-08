@@ -1,0 +1,7 @@
+1 0 obj
+<<
+/Type /Catalog
+/Pages 2 0 R
+/Metadata %d 0 R
+>>
+endobj
