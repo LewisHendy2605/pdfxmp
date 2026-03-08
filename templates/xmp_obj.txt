@@ -1,0 +1,8 @@
+%d 0 obj
+<<
+/Type /Metadata
+/Subtype /XML
+/Length %d
+>>
+%s
+endobj
