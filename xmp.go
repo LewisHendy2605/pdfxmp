@@ -2,6 +2,7 @@ package pdfxmp
 
 import (
 	"bytes"
+	"embed"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -15,15 +16,18 @@ import (
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 )
 
-// Load in string templates
-var catalog, catalog_err = os.ReadFile("./templates/xmp_catalog.txt")
-var xmp_obj, obj_err = os.ReadFile("./templates/xmp_obj.txt")
-var xmp_stream, stream_err = os.ReadFile("./templates/xmp_stream.txt")
-var xmp_xml, xml_err = os.ReadFile("./templates/xmp.xml")
-var xref, xref_err = os.ReadFile("./templates/xref.txt")
+//go:embed templates/*
+var templateFS embed.FS
 
-var creator_xml, creator_err = os.ReadFile("./templates/creator.xml")
-var title_xml, title_err = os.ReadFile("./templates/title.xml")
+// Load in string templates
+var catalog, catalog_err = templateFS.ReadFile("templates/xmp_catalog.txt")
+var xmp_obj, obj_err = templateFS.ReadFile("templates/xmp_obj.txt")
+var xmp_stream, stream_err = templateFS.ReadFile("templates/xmp_stream.txt")
+var xmp_xml, xml_err = templateFS.ReadFile("templates/xmp.xml")
+var xref, xref_err = templateFS.ReadFile("templates/xref.txt")
+
+var creator_xml, creator_err = templateFS.ReadFile("templates/creator.xml")
+var title_xml, title_err = templateFS.ReadFile("templates/title.xml")
 
 type Pdf struct {
 	inFilePath           string
