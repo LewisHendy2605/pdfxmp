@@ -282,7 +282,7 @@ func GetMetadata(inputFile string) (*types.Metadata, error) {
 		return nil, fmt.Errorf("couldnt extract metadate from pdf: %w", err)
 	}
 
-	pdfName := strings.Trim(filepath.Base(inputFile), filepath.Ext(inputFile))
+	pdfName := strings.TrimSuffix(filepath.Base(inputFile), filepath.Ext(inputFile))
 
 	pattern := filepath.Join(
 		outputDir,
