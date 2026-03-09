@@ -1,0 +1,5 @@
+<dc:title>
+    <rdf:Alt>
+        <rdf:li xml:lang='x-default'>%s</rdf:li>
+    </rdf:Alt>
+</dc:title>

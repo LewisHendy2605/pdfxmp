@@ -8,7 +8,7 @@ import (
 
 func TestXmpEmbeding(t *testing.T) {
 	var err error
-	inputPdf := "../examples/blank_one_page.pdf"
+	inputPdf := "./examples/blank_one_page.pdf"
 	outputPdf := fmt.Sprintf("../output/%s.pdf", time.Now().Format("02-01-2006"))
 
 	pdf, err := Open(inputPdf)
@@ -17,6 +17,11 @@ func TestXmpEmbeding(t *testing.T) {
 	}
 
 	err = pdf.Validate()
+
+	pdf.AddCreator("Lewis Hendy")
+	pdf.AddKeyword("KeywordsOne, Two, Three")
+	pdf.AddProducer("xmp tools")
+	pdf.AddTitle("Example XMP Embeded Docuemnt")
 
 	// Build MetaData
 	var metadata []Metadata

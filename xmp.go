@@ -16,19 +16,24 @@ import (
 )
 
 // Load in string templates
-var catalog, catalog_err = os.ReadFile("../templates/xmp_catalog.txt")
-var xmp_obj, obj_err = os.ReadFile("../templates/xmp_obj.txt")
-var xmp_stream, stream_err = os.ReadFile("../templates/xmp_stream.txt")
-var xmp_xml, xml_err = os.ReadFile("../templates/xmp.xml")
-var xref, xref_err = os.ReadFile("../templates/xref.txt")
+var catalog, catalog_err = os.ReadFile("./templates/xmp_catalog.txt")
+var xmp_obj, obj_err = os.ReadFile("./templates/xmp_obj.txt")
+var xmp_stream, stream_err = os.ReadFile("./templates/xmp_stream.txt")
+var xmp_xml, xml_err = os.ReadFile("./templates/xmp.xml")
+var xref, xref_err = os.ReadFile("./templates/xref.txt")
+
+var creator_xml, creator_err = os.ReadFile("./templates/creator.xml")
+var title_xml, title_err = os.ReadFile("./templates/title.xml")
 
 type Pdf struct {
-	inFilePath               string
-	outFilePath              string
-	xmpMetadata              string
-	buffer                   bytes.Buffer
-	numObjects               int
-	prevStartXrefBytesOffset int
+	inFilePath           string
+	outFilePath          string
+	xmpMetadata          string
+	buffer               bytes.Buffer
+	pdfMetadata          bytes.Buffer
+	adobeMetadata        bytes.Buffer
+	numObjects           int
+	startXrefBytesOffset int
 }
 
 type Metadata struct {
@@ -37,7 +42,7 @@ type Metadata struct {
 }
 
 // Opens a existing pdf file and loads into memory
-// TODO: Is this the best way to do this, whats the performace loss of holding in memory ?
+// TODO: Whats the performace loss of holding in memory ?
 func Open(filePath string) (*Pdf, error) {
 	var err error
 
@@ -54,7 +59,7 @@ func Open(filePath string) (*Pdf, error) {
 		inFilePath: path,
 	}
 
-	file, err := os.Open(filePath)
+	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
@@ -65,8 +70,8 @@ func Open(filePath string) (*Pdf, error) {
 		return nil, err
 	}
 
-	pdf.scanObjects()
-	err = pdf.prevStartXrefByteOffset()
+	pdf.numObjects = getNumObj(pdf.buffer.Bytes())
+	pdf.startXrefBytesOffset, err = getStartXrefByteOffset(pdf.buffer.Bytes())
 	if err != nil {
 		return nil, err
 	}
@@ -104,35 +109,45 @@ func (pdf *Pdf) Save(filePath string) error {
 	return nil
 }
 
-// Counts the ammout of objects in a pdf
-func (pdf *Pdf) scanObjects() {
-	re := regexp.MustCompile(`\d+\s+\d+\s+obj`)
-	matches := re.FindAll(pdf.buffer.Bytes(), -1)
-	pdf.numObjects = len(matches)
+// Validates pdf file with pdfcpu
+func (pdf *Pdf) Validate() error {
+	return api.ValidateFile(pdf.inFilePath, nil)
 }
 
-// Get the current start xref from the pdf
-func (pdf *Pdf) prevStartXrefByteOffset() error {
-	var err error
-
-	re := regexp.MustCompile(`startxref\s+(\d+)`)
-	matches := re.FindAllSubmatch(pdf.buffer.Bytes(), -1)
-
-	if len(matches) == 0 {
-		return fmt.Errorf("no prvious start xfref found")
-	}
-
-	last := matches[len(matches)-1]
-	pdf.prevStartXrefBytesOffset, err = strconv.Atoi(string(last[1]))
+// Adds Description to xmp metatdata
+func (pdf *Pdf) AddCreator(creator string) error {
+	_, err := fmt.Fprintf(&pdf.pdfMetadata, string(creator_xml)+"\n", creator)
 	if err != nil {
-		return err
+		return fmt.Errorf("couldnt embed creator matadata: %w", err)
 	}
-
 	return nil
 }
 
-func (pdf *Pdf) Validate() error {
-	return api.ValidateFile(pdf.inFilePath, nil)
+// Adds Description to xmp metatdata
+func (pdf *Pdf) AddTitle(title string) error {
+	_, err := fmt.Fprintf(&pdf.pdfMetadata, string(title_xml)+"\n", title)
+	if err != nil {
+		return fmt.Errorf("couldnt embed title matadata: %w", err)
+	}
+	return nil
+}
+
+// Adds Keywords to xmp metatdata, keywords can be a comma seperate string
+func (pdf *Pdf) AddKeyword(keywords string) error {
+	_, err := pdf.adobeMetadata.Write([]byte(newXmlTag("Keywords", keywords, "pdf") + "\n"))
+	if err != nil {
+		return fmt.Errorf("couldnt embed keywords: %w", err)
+	}
+	return nil
+}
+
+// Adds Producer to xmp metatdata
+func (pdf *Pdf) AddProducer(producer string) error {
+	_, err := pdf.adobeMetadata.Write([]byte(newXmlTag("Producer", producer, "pdf") + "\n"))
+	if err != nil {
+		return fmt.Errorf("couldnt embed creator matadata: %w", err)
+	}
+	return nil
 }
 
 // Embeded xmp xml metadata into a pdf
@@ -160,14 +175,14 @@ func (pdf *Pdf) AddMetaData(metadata []Metadata) error {
 
 	// Build xml with embeded data
 	xmp_xml_custom := buildXml(metadata)
-	xml := fmt.Sprintf(string(xmp_xml), xmp_xml_custom)
+	xml := fmt.Sprintf(string(xmp_xml), pdf.pdfMetadata.String(), pdf.adobeMetadata.String(), xmp_xml_custom)
 	xmp_metadata := fmt.Sprintf(string(xmp_stream), xml)
 
 	// Mark byte offset for xmp object
 	offsetXMP := pdf.buffer.Len()
 
 	// Write xmp object
-	if _, err = fmt.Fprintf(&pdf.buffer, string(xmp_obj), pdf.numObjects+1, len(xmp_xml), xmp_metadata); err != nil {
+	if _, err = fmt.Fprintf(&pdf.buffer, string(xmp_obj), pdf.numObjects+1, len(xml), xmp_metadata); err != nil {
 		return err
 	}
 
@@ -177,7 +192,7 @@ func (pdf *Pdf) AddMetaData(metadata []Metadata) error {
 	xrefOffset := pdf.buffer.Len()
 
 	// Write xref table
-	if _, err = fmt.Fprintf(&pdf.buffer, string(xref), offsetCatalog, pdf.numObjects+1, offsetXMP, pdf.numObjects+2, pdf.prevStartXrefBytesOffset, "%EndGpdfUpdate", xrefOffset); err != nil {
+	if _, err = fmt.Fprintf(&pdf.buffer, string(xref), offsetCatalog, pdf.numObjects+1, offsetXMP, pdf.numObjects+2, pdf.startXrefBytesOffset, "%EndGpdfUpdate", xrefOffset); err != nil {
 		return err
 	}
 
@@ -189,19 +204,47 @@ func (pdf *Pdf) AddMetaData(metadata []Metadata) error {
 	return nil
 }
 
+// Counts the ammout of objects in a pdf
+func getNumObj(bytes []byte) int {
+	re := regexp.MustCompile(`\d+\s+\d+\s+obj`)
+	matches := re.FindAll(bytes, -1)
+	return len(matches)
+}
+
+// Get the current start xref from the pdf
+func getStartXrefByteOffset(bytes []byte) (int, error) {
+	var err error
+
+	re := regexp.MustCompile(`startxref\s+(\d+)`)
+	matches := re.FindAllSubmatch(bytes, -1)
+
+	if len(matches) == 0 {
+		return -1, fmt.Errorf("no prvious start xfref found")
+	}
+
+	last := matches[len(matches)-1]
+	result, err := strconv.Atoi(string(last[1]))
+	if err != nil {
+		return -1, err
+	}
+
+	return result, nil
+}
+
 // Builds xml with embeded metadata
 func buildXml(metadata []Metadata) []byte {
 	var xml strings.Builder
 	for _, data := range metadata {
-		xml.WriteString(newXmlTag(data.Key, data.Value) + "\n")
+		xml.WriteString(newXmlTag(data.Key, data.Value, "meta") + "\n")
 	}
 
 	return []byte(xml.String())
 }
 
 // Creates a new xml tag
-func newXmlTag(key string, value string) string {
-	return fmt.Sprintf("<my:%s>%s</my:%s>", key, value, key)
+// E.g <prefix:key>value</prefix:key>
+func newXmlTag(key string, value string, prefix string) string {
+	return fmt.Sprintf("<%s:%s>%s</%s:%s>", prefix, key, value, prefix, key)
 }
 
 // Extracts metadata from existing pdf and outputs as a file
@@ -217,6 +260,8 @@ func ExtractMetadata(inputFile string, outputDir string) error {
 	return nil
 }
 
+// Extract metadata form a pdf, marshes xml data and returns the object as a struct
+// Exposes the descriptiosn as a list with the raw xml to unmarshal to cutom types
 func GetMetadata(inputFile string) (*types.Metadata, error) {
 	outputDir, err := filepath.Abs("../output")
 	if err != nil {
@@ -264,6 +309,7 @@ func GetMetadata(inputFile string) (*types.Metadata, error) {
 	return &meta, nil
 }
 
+// Validates a pdf
 func Validate(filePath string) error {
 	return api.ValidateFile(filePath, nil)
 }
