@@ -267,7 +267,7 @@ func ExtractMetadata(inputFile string, outputDir string) error {
 // Extract metadata form a pdf, marshes xml data and returns the object as a struct
 // Exposes the descriptiosn as a list with the raw xml to unmarshal to cutom types
 func GetMetadata(inputFile string) (*types.Metadata, error) {
-	outputDir, err := filepath.Abs("../output")
+	outputDir, err := filepath.Abs("./output")
 	if err != nil {
 		return nil, err
 	}
